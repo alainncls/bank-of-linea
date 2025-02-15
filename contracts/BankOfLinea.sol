@@ -47,6 +47,8 @@ contract BankOfLinea is ERC20, Ownable {
     // Events
     event ReflectionDistributed(uint256 amount);
     event FeesUpdated(uint256 buyFee, uint256 sellFee);
+    event ExclusionUpdated(address account, bool isExcluded);
+    event RewardsClaimed(address account, uint256 amount);
 
     /**
      * @dev Constructor to initialize the token.
@@ -187,6 +189,7 @@ contract BankOfLinea is ERC20, Ownable {
 
         rewards[msg.sender] = 0;
         payable(msg.sender).transfer(reward);
+        emit RewardsClaimed(msg.sender, reward);
     }
 
     /**
@@ -209,6 +212,7 @@ contract BankOfLinea is ERC20, Ownable {
      */
     function setExcludedFromRewards(address account, bool excluded) external onlyOwner {
         excludedFromRewards[account] = excluded;
+        emit ExclusionUpdated(account, excluded);
     }
 
     /**
