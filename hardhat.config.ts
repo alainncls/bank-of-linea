@@ -16,7 +16,7 @@ const config: HardhatUserConfig = {
   solidity: {
     compilers: [
       {
-        version: '0.8.21',
+        version: '0.8.28',
         settings: {
           evmVersion: 'london',
           optimizer: {
@@ -38,9 +38,6 @@ const config: HardhatUserConfig = {
       url: `https://linea-mainnet.infura.io/v3/${INFURA_KEY}`,
       accounts: [PRIVATE_KEY],
     },
-  },
-  paths: {
-    sources: './src',
   },
   etherscan: {
     apiKey: {

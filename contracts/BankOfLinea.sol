@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity ^0.8.28;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -52,7 +52,7 @@ contract BankOfLinea is ERC20, Ownable {
      * @dev Constructor to initialize the token.
      * @param _marketingWallet Address of the marketing wallet.
      */
-    constructor(address _marketingWallet) ERC20("BankOfLinea", "BOL") {
+    constructor(address _marketingWallet) ERC20("BankOfLinea", "BOL") Ownable(msg.sender) {
         _mint(msg.sender, 10_000_000 * 10 ** decimals()); // Mint initial supply to the deployer
         marketingWallet = _marketingWallet;
 
@@ -67,7 +67,7 @@ contract BankOfLinea is ERC20, Ownable {
      * @param recipient The address receiving tokens.
      * @param amount The amount of tokens being transferred.
      */
-    function _transfer(address sender, address recipient, uint256 amount) internal override {
+    function _update(address sender, address recipient, uint256 amount) internal override {
         uint256 fee = 0;
 
         // Calculate fees based on transaction type
@@ -87,11 +87,11 @@ contract BankOfLinea is ERC20, Ownable {
 
             // Add ETH to the respective allocations
             totalCollected += reflection;
-            _transfer(sender, address(this), liquidity); // Liquidity allocation
-            _transfer(sender, marketingWallet, marketing); // Marketing allocation
+            _update(sender, address(this), liquidity); // Liquidity allocation
+            _update(sender, marketingWallet, marketing); // Marketing allocation
         }
 
-        super._transfer(sender, recipient, transferAmount);
+        super._update(sender, recipient, transferAmount);
 
         // Manage holder list
         _addHolder(recipient);
@@ -178,11 +178,13 @@ contract BankOfLinea is ERC20, Ownable {
 
     /**
      * @notice Calculates the reward available for a specific address.
+     *         The reward is based on the holder's share of the total supply.
+     *         The holder must have a minimum balance of 1000 tokens to be eligible.
      * @param account The address of the token holder.
      * @return The amount of ETH rewards available.
      */
     function calculateReward(address account) public view returns (uint256) {
-        // TODO: return 0 if balance < 1000
+        if (balanceOf(account) < 1000) return 0;
         uint256 holderShare = (balanceOf(account) * 10 ** 18) / totalSupply();
         return (totalCollected * holderShare) / 10 ** 18;
     }
