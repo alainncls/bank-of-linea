@@ -3,13 +3,14 @@ pragma solidity ^0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title BankOfLinea
  * @dev A deflationary ERC20 token with reflection and liquidity mechanisms.
  * Tax fees are applied on buy and sell transactions, with portions allocated for reflections, liquidity, and marketing.
  */
-contract BankOfLinea is ERC20, Ownable {
+contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
     // Custom errors
     error IndexOutOfBounds();
     error DistributionNotReady();
@@ -44,6 +45,9 @@ contract BankOfLinea is ERC20, Ownable {
     address[] private holders;
     mapping(address => bool) private isHolder;
 
+    // Exempted addresses from fees
+    mapping(address => bool) public exemptedFromFees;
+
     // Events
     event ReflectionDistributed(uint256 amount);
     event FeesUpdated(uint256 buyFee, uint256 sellFee);
@@ -55,6 +59,7 @@ contract BankOfLinea is ERC20, Ownable {
      * @param _marketingWallet Address of the marketing wallet.
      */
     constructor(address _marketingWallet) ERC20("BankOfLinea", "BOL") Ownable(msg.sender) {
+        require(_marketingWallet != address(0), "Invalid marketing wallet address");
         _mint(msg.sender, 10_000_000 * 10 ** decimals()); // Mint initial supply to the deployer
         marketingWallet = _marketingWallet;
 
@@ -70,13 +75,17 @@ contract BankOfLinea is ERC20, Ownable {
      * @param amount The amount of tokens being transferred.
      */
     function _update(address sender, address recipient, uint256 amount) internal override {
+        require(sender != address(0), "Invalid sender address");
+        require(recipient != address(0), "Invalid recipient address");
         uint256 fee = 0;
 
         // Calculate fees based on transaction type
-        if (recipient == address(this)) {
-            fee = (amount * SELL_FEE) / 100;
-        } else if (sender == address(this)) {
-            fee = (amount * BUY_FEE) / 100;
+        if (!exemptedFromFees[sender] && !exemptedFromFees[recipient]) {
+            if (recipient == address(this)) {
+                fee = (amount * SELL_FEE) / 100;
+            } else if (sender == address(this)) {
+                fee = (amount * BUY_FEE) / 100;
+            }
         }
 
         uint256 transferAmount = amount - fee;
@@ -160,8 +169,8 @@ contract BankOfLinea is ERC20, Ownable {
      */
     function distributeRewardsBatch(uint256 startIndex, uint256 endIndex) external {
         if (block.timestamp < lastDistributed + 3 hours) revert DistributionNotReady();
-        uint256 amountToDistribute = (totalCollected * REFLECTION_RATE) / 100;
-        totalCollected -= amountToDistribute;
+        uint256 amountToDistribute = totalCollected;
+        totalCollected = 0;
 
         uint256 totalSupplyCached = totalSupply();
         for (uint256 i = startIndex; i < endIndex && i < holders.length; i++) {
@@ -182,10 +191,11 @@ contract BankOfLinea is ERC20, Ownable {
     /**
      * @notice Allows holders to claim their reflection rewards in ETH.
      */
-    function claimRewards() external {
+    function claimRewards() external nonReentrant {
         if (excludedFromRewards[msg.sender]) revert ExcludedFromRewards();
         uint256 reward = calculateReward(msg.sender);
         if (reward == 0) revert NoRewardsAvailable();
+        require(address(this).balance >= reward, "Insufficient contract balance");
 
         rewards[msg.sender] = 0;
         payable(msg.sender).transfer(reward);
@@ -223,6 +233,15 @@ contract BankOfLinea is ERC20, Ownable {
     function updateFees(uint256 _buyFee, uint256 _sellFee) external onlyOwner {
         require(_buyFee == BUY_FEE && _sellFee == SELL_FEE, "Invalid fees");
         emit FeesUpdated(_buyFee, _sellFee);
+    }
+
+    /**
+     * @notice Sets whether an address is exempted from fees.
+     * @param account The address to exempt or include.
+     * @param exempted Whether the address should be exempted.
+     */
+    function setExemptedFromFees(address account, bool exempted) external onlyOwner {
+        exemptedFromFees[account] = exempted;
     }
 
     /**
