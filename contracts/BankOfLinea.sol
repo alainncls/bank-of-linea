@@ -16,10 +16,14 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
     error DistributionNotReady();
     error ExcludedFromRewards();
     error NoRewardsAvailable();
+    error InvalidAddress();
+    error InsufficientBalance();
+    error TimelockNotExpired();
+    error ETHTransferFailed();
 
     // Transaction fees
-    uint256 public constant BUY_FEE = 99; // 99% on buy transactions
-    uint256 public constant SELL_FEE = 7; // 7% on sell transactions
+    uint256 public buyFee = 99; // 99% on buy transactions
+    uint256 public sellFee = 7; // 7% on sell transactions
 
     // Fee allocation percentages
     uint256 public constant REFLECTION_RATE = 70; // 70% of the tax is distributed to holders
@@ -35,6 +39,9 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
     // Excluded addresses from reflection rewards
     mapping(address => bool) public excludedFromRewards;
 
+    // Exempted addresses from fees
+    mapping(address => bool) public exemptedFromFees;
+
     // Reflection rewards per holder
     mapping(address => uint256) private rewards;
 
@@ -43,29 +50,44 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
 
     // List of token holders
     address[] private holders;
-    mapping(address => bool) private isHolder;
-
-    // Exempted addresses from fees
-    mapping(address => bool) public exemptedFromFees;
+    mapping(address => uint256) private holderIndex; // store index + 1 (0 means absent)
 
     // Events
     event ReflectionDistributed(uint256 amount);
     event FeesUpdated(uint256 buyFee, uint256 sellFee);
     event ExclusionUpdated(address account, bool isExcluded);
     event RewardsClaimed(address account, uint256 amount);
+    event FeeChangeProposed(uint256 newBuyFee, uint256 newSellFee, uint256 timestamp);
+
+    // Internal flag to prevent fee application during internal transfers
+    bool private inFeeTransfer;
 
     /**
      * @dev Constructor to initialize the token.
      * @param _marketingWallet Address of the marketing wallet.
      */
     constructor(address _marketingWallet) ERC20("BankOfLinea", "BOL") Ownable(msg.sender) {
-        require(_marketingWallet != address(0), "Invalid marketing wallet address");
-        _mint(msg.sender, 10_000_000 * 10 ** decimals()); // Mint initial supply to the deployer
+        if (_marketingWallet == address(0)) revert InvalidAddress();
+
         marketingWallet = _marketingWallet;
 
         // Exclude certain addresses from rewards
         excludedFromRewards[address(this)] = true; // Contract address
         excludedFromRewards[marketingWallet] = true; // Marketing wallet
+
+        _mint(_marketingWallet, 10_000_000 * 10 ** decimals()); // Mint initial supply to the marketing wallet
+    }
+
+    /**
+     * @dev Internal function to handle transfers without applying fees.
+     * @param sender The address sending tokens.
+     * @param recipient The address receiving tokens.
+     * @param amount The amount of tokens being transferred.
+     */
+    function _internalTransfer(address sender, address recipient, uint256 amount) internal {
+        inFeeTransfer = true;
+        _update(sender, recipient, amount);
+        inFeeTransfer = false;
     }
 
     /**
@@ -75,16 +97,16 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
      * @param amount The amount of tokens being transferred.
      */
     function _update(address sender, address recipient, uint256 amount) internal override {
-        require(sender != address(0), "Invalid sender address");
-        require(recipient != address(0), "Invalid recipient address");
+        if (recipient == address(0)) revert InvalidAddress();
+
         uint256 fee = 0;
 
         // Calculate fees based on transaction type
-        if (!exemptedFromFees[sender] && !exemptedFromFees[recipient]) {
+        if (!inFeeTransfer && !exemptedFromFees[sender] && !exemptedFromFees[recipient]) {
             if (recipient == address(this)) {
-                fee = (amount * SELL_FEE) / 100;
+                fee = (amount * sellFee) / 100;
             } else if (sender == address(this)) {
-                fee = (amount * BUY_FEE) / 100;
+                fee = (amount * buyFee) / 100;
             }
         }
 
@@ -98,8 +120,8 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
 
             // Add ETH to the respective allocations
             totalCollected += reflection;
-            _update(sender, address(this), liquidity); // Liquidity allocation
-            _update(sender, marketingWallet, marketing); // Marketing allocation
+            _internalTransfer(sender, address(this), liquidity); // Liquidity allocation
+            _internalTransfer(sender, marketingWallet, marketing); // Marketing allocation
         }
 
         super._update(sender, recipient, transferAmount);
@@ -114,9 +136,9 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
      * @param account The address to add.
      */
     function _addHolder(address account) internal {
-        if (!isHolder[account] && balanceOf(account) > 0) {
+        if (holderIndex[account] == 0 && balanceOf(account) > 0) {
+            holderIndex[account] = holders.length + 1; // index+1 to avoid zero
             holders.push(account);
-            isHolder[account] = true;
         }
     }
 
@@ -125,23 +147,16 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
      * @param account The address to remove.
      */
     function _removeHolder(address account) internal {
-        if (isHolder[account] && balanceOf(account) == 0) {
-            isHolder[account] = false;
-            uint256 index = _findHolderIndex(account);
-            if (index < holders.length - 1) {
-                holders[index] = holders[holders.length - 1];
-            }
+        if (holderIndex[account] != 0 && balanceOf(account) == 0) {
+            uint256 index = holderIndex[account];
+            uint256 lastIndex = holders.length;
+            address lastHolder = holders[lastIndex - 1];
+            // Replace the element to remove with the last one
+            holders[index - 1] = lastHolder;
+            holderIndex[lastHolder] = index;
             holders.pop();
+            holderIndex[account] = 0;
         }
-    }
-
-    function _findHolderIndex(address account) internal view returns (uint256) {
-        for (uint256 i = 0; i < holders.length; i++) {
-            if (holders[i] == account) {
-                return i;
-            }
-        }
-        revert IndexOutOfBounds();
     }
 
     /**
@@ -177,7 +192,7 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
             address holder = holders[i];
             if (!excludedFromRewards[holder]) {
                 uint256 holderBalance = balanceOf(holder);
-                if (holderBalance >= 1000) {
+                if (holderBalance >= 1000 * 10 ** decimals()) {
                     uint256 holderShare = (holderBalance * 10 ** 18) / totalSupplyCached;
                     rewards[holder] += (amountToDistribute * holderShare) / 10 ** 18;
                 }
@@ -193,26 +208,14 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
      */
     function claimRewards() external nonReentrant {
         if (excludedFromRewards[msg.sender]) revert ExcludedFromRewards();
-        uint256 reward = calculateReward(msg.sender);
+        uint256 reward = rewards[msg.sender];
         if (reward == 0) revert NoRewardsAvailable();
-        require(address(this).balance >= reward, "Insufficient contract balance");
+        if (address(this).balance < reward) revert InsufficientBalance();
 
         rewards[msg.sender] = 0;
-        payable(msg.sender).transfer(reward);
+        (bool success, ) = payable(msg.sender).call{value: reward}("");
+        if (!success) revert ETHTransferFailed();
         emit RewardsClaimed(msg.sender, reward);
-    }
-
-    /**
-     * @notice Calculates the reward available for a specific address.
-     *         The reward is based on the holder's share of the total supply.
-     *         The holder must have a minimum balance of 1000 tokens to be eligible.
-     * @param account The address of the token holder.
-     * @return The amount of ETH rewards available.
-     */
-    function calculateReward(address account) public view returns (uint256) {
-        if (balanceOf(account) < 1000) return 0;
-        uint256 holderShare = (balanceOf(account) * 10 ** 18) / totalSupply();
-        return (totalCollected * holderShare) / 10 ** 18;
     }
 
     /**
@@ -226,13 +229,29 @@ contract BankOfLinea is ERC20, Ownable, ReentrancyGuard {
     }
 
     /**
-     * @notice Updates the buy and sell fees.
-     * @param _buyFee New buy fee percentage.
-     * @param _sellFee New sell fee percentage.
+     * @notice Proposes a new fee configuration with a 7-day timelock.
+     * @param _newBuyFee New buy fee percentage.
+     * @param _newSellFee New sell fee percentage.
      */
-    function updateFees(uint256 _buyFee, uint256 _sellFee) external onlyOwner {
-        require(_buyFee == BUY_FEE && _sellFee == SELL_FEE, "Invalid fees");
-        emit FeesUpdated(_buyFee, _sellFee);
+    struct FeeChange {
+        uint256 newBuyFee;
+        uint256 newSellFee;
+        uint256 timestamp; // time of proposal
+    }
+
+    FeeChange public pendingFeeChange;
+
+    function proposeFeeChange(uint256 _newBuyFee, uint256 _newSellFee) external onlyOwner {
+        pendingFeeChange = FeeChange({newBuyFee: _newBuyFee, newSellFee: _newSellFee, timestamp: block.timestamp});
+        emit FeeChangeProposed(_newBuyFee, _newSellFee, block.timestamp);
+    }
+
+    function applyFeeChange() external onlyOwner {
+        if (block.timestamp < pendingFeeChange.timestamp + 7 days) revert TimelockNotExpired();
+        buyFee = pendingFeeChange.newBuyFee;
+        sellFee = pendingFeeChange.newSellFee;
+        delete pendingFeeChange;
+        emit FeesUpdated(buyFee, sellFee);
     }
 
     /**
