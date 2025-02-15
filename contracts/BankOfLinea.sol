@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 /**
  * @title BankOfLinea
@@ -17,13 +17,13 @@ contract BankOfLinea is ERC20, Ownable {
     error NoRewardsAvailable();
 
     // Transaction fees
-    uint256 public buyFee = 99; // 99% on buy transactions
-    uint256 public sellFee = 7; // 7% on sell transactions
+    uint256 public constant BUY_FEE = 99; // 99% on buy transactions
+    uint256 public constant SELL_FEE = 7; // 7% on sell transactions
 
     // Fee allocation percentages
-    uint256 public reflectionRate = 70; // 70% of the tax is distributed to holders
-    uint256 public liquidityRate = 20; // 20% of the tax is added to liquidity
-    uint256 public marketingRate = 10; // 10% of the tax is sent to the marketing wallet
+    uint256 public constant REFLECTION_RATE = 70; // 70% of the tax is distributed to holders
+    uint256 public constant LIQUIDITY_RATE = 20; // 20% of the tax is added to liquidity
+    uint256 public constant MARKETING_RATE = 10; // 10% of the tax is sent to the marketing wallet
 
     // Marketing wallet address
     address public marketingWallet;
@@ -72,17 +72,17 @@ contract BankOfLinea is ERC20, Ownable {
 
         // Calculate fees based on transaction type
         if (recipient == address(this)) {
-            fee = (amount * sellFee) / 100;
+            fee = (amount * SELL_FEE) / 100;
         } else if (sender == address(this)) {
-            fee = (amount * buyFee) / 100;
+            fee = (amount * BUY_FEE) / 100;
         }
 
         uint256 transferAmount = amount - fee;
 
         // Distribute the fee
         if (fee > 0) {
-            uint256 reflection = (fee * reflectionRate) / 100;
-            uint256 liquidity = (fee * liquidityRate) / 100;
+            uint256 reflection = (fee * REFLECTION_RATE) / 100;
+            uint256 liquidity = (fee * LIQUIDITY_RATE) / 100;
             uint256 marketing = fee - reflection - liquidity;
 
             // Add ETH to the respective allocations
@@ -116,14 +116,21 @@ contract BankOfLinea is ERC20, Ownable {
     function _removeHolder(address account) internal {
         if (isHolder[account] && balanceOf(account) == 0) {
             isHolder[account] = false;
-            for (uint256 i = 0; i < holders.length; i++) {
-                if (holders[i] == account) {
-                    holders[i] = holders[holders.length - 1];
-                    holders.pop();
-                    break;
-                }
+            uint256 index = _findHolderIndex(account);
+            if (index < holders.length - 1) {
+                holders[index] = holders[holders.length - 1];
+            }
+            holders.pop();
+        }
+    }
+
+    function _findHolderIndex(address account) internal view returns (uint256) {
+        for (uint256 i = 0; i < holders.length; i++) {
+            if (holders[i] == account) {
+                return i;
             }
         }
+        revert IndexOutOfBounds();
     }
 
     /**
@@ -145,18 +152,24 @@ contract BankOfLinea is ERC20, Ownable {
     }
 
     /**
-     * @notice Distributes accumulated reflections to all eligible holders.
+     * @notice Distributes accumulated reflections to a batch of holders.
+     * @param startIndex The starting index of the holders to distribute to.
+     * @param endIndex The ending index of the holders to distribute to.
      */
-    function distributeRewards() external {
+    function distributeRewardsBatch(uint256 startIndex, uint256 endIndex) external {
         if (block.timestamp < lastDistributed + 3 hours) revert DistributionNotReady();
-        uint256 amountToDistribute = (totalCollected * reflectionRate) / 100;
+        uint256 amountToDistribute = (totalCollected * REFLECTION_RATE) / 100;
         totalCollected -= amountToDistribute;
 
-        // Distribute rewards to eligible holders
-        for (uint256 i = 0; i < holders.length; i++) {
+        uint256 totalSupplyCached = totalSupply();
+        for (uint256 i = startIndex; i < endIndex && i < holders.length; i++) {
             address holder = holders[i];
             if (!excludedFromRewards[holder]) {
-                rewards[holder] += calculateReward(holder);
+                uint256 holderBalance = balanceOf(holder);
+                if (holderBalance >= 1000) {
+                    uint256 holderShare = (holderBalance * 10 ** 18) / totalSupplyCached;
+                    rewards[holder] += (amountToDistribute * holderShare) / 10 ** 18;
+                }
             }
         }
 
@@ -204,8 +217,7 @@ contract BankOfLinea is ERC20, Ownable {
      * @param _sellFee New sell fee percentage.
      */
     function updateFees(uint256 _buyFee, uint256 _sellFee) external onlyOwner {
-        buyFee = _buyFee;
-        sellFee = _sellFee;
+        require(_buyFee == BUY_FEE && _sellFee == SELL_FEE, "Invalid fees");
         emit FeesUpdated(_buyFee, _sellFee);
     }
 
