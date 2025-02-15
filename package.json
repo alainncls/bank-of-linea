@@ -5,8 +5,8 @@
   "scripts": {
     "compile": "npx hardhat compile",
     "deploy": "npx hardhat run scripts/deployBankOfLinea.ts --network",
-    "lint": "prettier --list-different '**/*.sol' '**/*.ts' '**/*.json' && npm run solhint",
-    "lint:fix": "prettier --write '**/*.sol' '**/*.ts' '**/*.json'",
+    "lint": "prettier --list-different '**/*.sol' '**/*.ts' '**/*.json' '**/*.md' && npm run solhint",
+    "lint:fix": "prettier --write '**/*.sol' '**/*.ts' '**/*.json' '**/*.md'",
     "solhint": "solhint contracts/**/*.sol -c .solhint.json",
     "test": "npx hardhat test"
   },
