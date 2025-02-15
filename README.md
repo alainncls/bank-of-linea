@@ -1,11 +1,15 @@
 # Bank of Linea
 
-Bank of Linea is a reflection token designed for the Linea blockchain. This token aims to provide users with a unique way to earn rewards through holding, as a portion of each transaction is redistributed to existing holders.
+Bank of Linea is a reflection token designed for the Linea blockchain. This token aims to provide users with a unique
+way to earn rewards through holding, as a portion of each transaction is redistributed to existing holders.
 
 ## Project Status
 
 > [!NOTE]
-> This project is a work in progress. The contract is not yet deployed, and features are subject to change.
+> This project is a work in progress.
+> The contract is not production ready, and features are subject to change.
+
+Deployment&nbsp;on&nbsp;Linea&nbsp;Sepolia: [0x01638721Eb333Bf38F11d8F83237A5e5c03BfD24](https://sepolia.lineascan.build/address/0x01638721Eb333Bf38F11d8F83237A5e5c03BfD24#code)
 
 ## Features
 
@@ -14,7 +18,8 @@ Bank of Linea is a reflection token designed for the Linea blockchain. This toke
 
 ## Installation
 
-To get started with the Bank of Linea project, you need to install the necessary dependencies. Ensure you have [Node.js](https://nodejs.org/) and [npm](https://www.npmjs.com/) installed on your machine.
+To get started with the Bank of Linea project, you need to install the necessary dependencies. Ensure you
+have [Node.js](https://nodejs.org/) and [npm](https://www.npmjs.com/) installed on your machine.
 
 1. Clone the repository:
 
@@ -58,4 +63,5 @@ You can also share your ideas and suggestions by opening an issue on the GitHub 
 
 ## Contact
 
-For any questions or suggestions, please open an issue on the GitHub repository or contact [GreenDotLinea](https://x.com/GreenDotLinea).
+For any questions or suggestions, please open an issue on the GitHub repository or
+contact [GreenDotLinea](https://x.com/GreenDotLinea).
